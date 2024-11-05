@@ -1,9 +1,9 @@
 ## Babylon Shape Extrusion with Earcut
-**User-I has drwan a 2d extruded into 3d object.
+**User-I has drwan a 2d extruded into 3d object.**
 
 ![image](https://github.com/user-attachments/assets/c5f1efb0-89e8-49bf-957c-4f8d231e414a)
 
-**User-II  viewing user-I's shape.
+**User-II  viewing user-I's shape.**
 
 ![image](https://github.com/user-attachments/assets/699c0598-219f-4db5-860e-21dfb29dddef)
 
