@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Shape Drawing with BabylonJS</title>
+    <script type="module">
+        import earcut from 'https://cdn.jsdelivr.net/npm/earcut';
+
+        // Attach earcut to the global scope
+        window.earcut = earcut;
+    </script>
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        canvas { width: 100%; height: 100%; touch-action: none; }
+        body { margin: 0; overflow: hidden; }
+        .controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="controls">
+        <button onclick="setDrawingMode('polygon')">Polygon Mode</button>
+        <button onclick="setDrawingMode('circle')">Circle Mode</button>
+        <button onclick="completeShape()">Complete Shape</button>
+        <p id="modeIndicator">Current Mode: Polygon</p>
+    </div>
+    <canvas id="renderCanvas"></canvas>
+    
+    <script>
+        const socket = io(); // Connect to the Socket.io server
+
+        socket.on('connect', () => {
+            console.log('Connected to server, socket ID:', socket.id);
+        });
+
+        socket.on('disconnect', () => {
+            console.log('Disconnected from server');
+        });
+
+        socket.on('newShape', (shapeData) => {
+            createExtrudedShape(shapeData.shapePoints);
+        });
+
+        const canvas = document.getElementById('renderCanvas');
+        const engine = new BABYLON.Engine(canvas, true);
+        let drawingMode = 'polygon';
+        let currentShapePoints = [];
+        let isDrawing = false;
+        let circleCenter = null;
+        let circleRadius = 0;
+        const pointsMarkers = [];
+
+        function setDrawingMode(mode) {
+            drawingMode = mode;
+            isDrawing = false;
+            currentShapePoints = [];
+            clearMarkers();
+            circleCenter = null;
+            circleRadius = 0;
+            document.getElementById("modeIndicator").textContent = `Current Mode: ${drawingMode.charAt(0).toUpperCase() + drawingMode.slice(1)}`;
+        }
+
+        function completeShape() {
+            if (drawingMode === 'polygon' && currentShapePoints.length > 2) {
+                createAndShareShape(currentShapePoints);
+                currentShapePoints = [];
+                clearMarkers();
+            } else if (drawingMode === 'circle' && circleCenter && circleRadius > 0) {
+                const circlePoints = createCirclePoints(circleCenter, circleRadius);
+                createAndShareShape(circlePoints);
+                circleCenter = null;
+                circleRadius = 0;
+                clearMarkers();
+            }
+        }
+
+        function createAndShareShape(shapePoints) {
+            createExtrudedShape(shapePoints);
+            // Broadcast the shape to other users
+            socket.emit('drawShape', { shapePoints });
+        }
+
+        function createExtrudedShape(shapePoints) {
+            const scene = engine.scenes[0];
+            const shape3D = BABYLON.MeshBuilder.ExtrudePolygon("extrudedShape", {
+                shape: shapePoints,
+                depth: 1
+            }, scene);
+            shape3D.position.y = 0.5;
+        }
+
+        function createCirclePoints(center, radius, segments = 32) {
+            const points = [];
+            for (let i = 0; i < segments; i++) {
+                const angle = (i / segments) * 2 * Math.PI;
+                const x = center.x + radius * Math.cos(angle);
+                const z = center.z + radius * Math.sin(angle);
+                points.push(new BABYLON.Vector2(x, z));
+            }
+            return points;
+        }
+
+        function addMarker(position, scene) {
+            const marker = BABYLON.MeshBuilder.CreateSphere("pointMarker", { diameter: 0.1 }, scene);
+            marker.position = position;
+            marker.position.y += 0.05; 
+            pointsMarkers.push(marker);
+        }
+
+        function clearMarkers() {
+            pointsMarkers.forEach(marker => marker.dispose());
+            pointsMarkers.length = 0;
+        }
+
+        const createScene = function() {
+            const scene = new BABYLON.Scene(engine);
+            const camera = new BABYLON.ArcRotateCamera("Camera", Math.PI / 2, Math.PI / 4, 20, BABYLON.Vector3.Zero(), scene);
+            camera.attachControl(canvas, true);
+            const light = new BABYLON.HemisphericLight("light1", new BABYLON.Vector3(1, 1, 0), scene);
+            const ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 20, height: 20 }, scene);
+            return scene;
+        };
+
+        const scene = createScene();
+        engine.runRenderLoop(() => {
+            scene.render();
+        });
+
+        canvas.addEventListener("click", (event) => {
+            const pickResult = scene.pick(scene.pointerX, scene.pointerY);
+            if (pickResult.hit) {
+                if (drawingMode === 'polygon') {
+                    const point2D = new BABYLON.Vector2(pickResult.pickedPoint.x, pickResult.pickedPoint.z);
+                    currentShapePoints.push(point2D);
+                    addMarker(pickResult.pickedPoint, scene);
+                } else if (drawingMode === 'circle') {
+                    if (!circleCenter) {
+                        circleCenter = pickResult.pickedPoint;
+                        addMarker(circleCenter, scene);
+                    } else {
+                        const dx = pickResult.pickedPoint.x - circleCenter.x;
+                        const dz = pickResult.pickedPoint.z - circleCenter.z;
+                        circleRadius = Math.sqrt(dx * dx + dz * dz);
+                        addMarker(pickResult.pickedPoint, scene);
+                    }
+                }
+            }
+        });
+    </script>
+</body>
+</html>
